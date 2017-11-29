@@ -119,7 +119,8 @@ static swig_module modules[] = {
 void SWIG_merge_envopt(const char *env, int oargc, char *oargv[], int *nargc, char ***nargv) {
   if (!env) {
     *nargc = oargc;
-    *nargv = oargv;
+    *nargv = (char **)malloc(sizeof(char *) * oargc);
+    memcpy(*nargv, oargv, sizeof(char *) * oargc);
     return;
   }
 
@@ -152,6 +153,59 @@ void SWIG_merge_envopt(const char *env, int oargc, char *oargv[], int *nargc, ch
   *nargv = argv;
 }
 
+void SWIG_merge_via_files(int *argc, char ***argv) {
+  static const int BUFFER_SIZE = 4097;
+  char buffer[BUFFER_SIZE];
+  int i;
+  int insert;
+  char **new_argv = *argv;
+  int new_argc = *argc;
+
+  for (i = 1; i < new_argc; i++) {
+    FILE *f;
+    while (new_argv[i] && new_argv[i][0] == '@' && (f = fopen(&new_argv[i][1], "r"))) {
+      new_argc--;
+      memmove(&new_argv[i], &new_argv[i + 1], sizeof(char *) * (new_argc - i));
+      insert = i;
+
+      // No single line can be longer than BUFFER_SIZE
+      while (fgets(buffer, BUFFER_SIZE - 1, f)) {
+        char *e;
+        char *b = buffer;
+
+        buffer[BUFFER_SIZE - 1] = '\0';
+
+        while (*b) {
+          while (isspace(*b))
+            ++b;
+          if (!*b)
+            break;
+
+          e = b;
+          while(*e && !isspace(*e))
+            ++e;
+
+          if (b != e) {
+            new_argv = (char **)realloc(new_argv, (new_argc + 1) * sizeof(char *));
+            memmove(&new_argv[insert + 1], &new_argv[insert], sizeof(char *) * (new_argc - insert));
+            new_argc++;
+
+            new_argv[insert] = (char *)malloc((e - b) + 1);
+            memcpy(new_argv[insert], b, e - b);
+            new_argv[insert][e - b] = '\0';
+            insert++;
+          }
+          b = e;
+        }
+      }
+      fclose(f);
+    }
+  }
+
+  *argv = new_argv;
+  *argc = new_argc;
+}
+
 int main(int margc, char **margv) {
   int i;
   Language *dl = 0;
@@ -161,6 +215,7 @@ int main(int margc, char **margv) {
   char **argv;
 
   SWIG_merge_envopt(getenv("SWIG_FEATURES"), margc, margv, &argc, &argv);
+  SWIG_merge_via_files(&argc, &argv);
 
 #ifdef MACSWIG
   SIOUXSettings.asktosaveonclose = false;
