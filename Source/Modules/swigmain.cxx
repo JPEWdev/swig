@@ -164,38 +164,45 @@ void SWIG_merge_via_files(int *argc, char ***argv) {
   for (i = 1; i < new_argc; i++) {
     FILE *f;
     while (new_argv[i] && new_argv[i][0] == '@' && (f = fopen(&new_argv[i][1], "r"))) {
+      char c;
+      char* b;
+      char* be = &buffer[BUFFER_SIZE];
+      int quote = 0;
+      bool escape = false;
       new_argc--;
       memmove(&new_argv[i], &new_argv[i + 1], sizeof(char *) * (new_argc - i));
       insert = i;
+      b = buffer;
 
-      // No single line can be longer than BUFFER_SIZE
-      while (fgets(buffer, BUFFER_SIZE - 1, f)) {
-        char *e;
-        char *b = buffer;
-
-        buffer[BUFFER_SIZE - 1] = '\0';
-
-        while (*b) {
-          while (isspace(*b))
-            ++b;
-          if (!*b)
-            break;
-
-          e = b;
-          while(*e && !isspace(*e))
-            ++e;
-
-          if (b != e) {
+      while ((c = fgetc(f)) != EOF) {
+        if (escape) {
+          if (b != be) {
+            *b = c;
+            b++;
+          }
+          escape = false;
+        } else if (c == '\\') {
+          escape = true;
+        } else if (!quote && (c == '\'' || c == '"')) {
+          quote = c;
+        } else if (quote && c == quote) {
+          quote = 0;
+        } else if (isspace(c) && !quote) {
+          if (b != buffer) {
             new_argv = (char **)realloc(new_argv, (new_argc + 1) * sizeof(char *));
             memmove(&new_argv[insert + 1], &new_argv[insert], sizeof(char *) * (new_argc - insert));
             new_argc++;
 
-            new_argv[insert] = (char *)malloc((e - b) + 1);
-            memcpy(new_argv[insert], b, e - b);
-            new_argv[insert][e - b] = '\0';
+            new_argv[insert] = (char *)malloc((b - buffer) + 1);
+            memcpy(new_argv[insert], buffer, b - buffer);
+            new_argv[insert][b - buffer] = '\0';
             insert++;
+
+            b = buffer;
           }
-          b = e;
+        } else if (b != be) {
+          *b = c;
+          b++;
         }
       }
       fclose(f);
